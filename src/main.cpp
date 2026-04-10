@@ -1,7 +1,7 @@
 #include <Arduino.h>
 
 #define SYSTEM_NAME "Hardware Test Bench"
-#define SYSTEM_VERSION "v0.4.0"
+#define SYSTEM_VERSION "v0.5.0"
 
 #define BUZZER_PIN 15 
 #define RELAY_PIN 5
@@ -9,6 +9,7 @@
 #define ULTRASONIC_ECHO_PIN 18
 #define BUTTON_PIN 21
 #define LED_PIN 22
+#define PIR_PIN 23
 
 void printHeader() {
   Serial.println("\n===============================================");
@@ -16,7 +17,6 @@ void printHeader() {
   Serial.println("Developed by https://github.com/mariaeduardapj");
   Serial.println("===============================================\n");
 }
-
 void buzzerTest() {
   Serial.print("\nStarting Buzzer Test... ");
   digitalWrite(BUZZER_PIN, LOW);
@@ -84,17 +84,16 @@ void ultrasonicTest() {
 
 }
 void buttonledTest() {
-  Serial.print("\nStarting Button and Led Test... ");
-  Serial.println("Press the button fora a few seconds to turn on the LED.");
+  Serial.print("\nStarting Button and LED Test... Press the button for a few seconds to turn on the LED.");
   while (digitalRead(BUTTON_PIN) == LOW) {
   }
   if (digitalRead(BUTTON_PIN) == HIGH) {
     digitalWrite(LED_PIN, HIGH);
-    Serial.println("LED is ON. Now release the button.");
+    Serial.print(" LED is ON. Now release the button.");
     while (digitalRead(BUTTON_PIN) == HIGH) {
     }
     digitalWrite(LED_PIN, LOW);
-    Serial.println("LED is OFF. Button and LED test completed.");
+    Serial.println(" LED is OFF. Button and LED test completed.");
   }
   delay(1000);
   Serial.println("Is the LED turn on when the button is pressed and turn off when released? (y/n)");
@@ -107,6 +106,32 @@ void buttonledTest() {
   else {
     Serial.println("Button and LED test failed or not confirmed.");
   }
+}
+void pirTest() {
+    Serial.println("\nRecomend do Button and LED test before this one, to make sure the LED is working correctly for this test.\nStarting PIR Sensor Test... Move your hand in front of the PIR sensor to detect motion.\nPress any key to finish the test.");
+    while (Serial.available() == 0) {
+        if (digitalRead(PIR_PIN) == HIGH) {
+            digitalWrite(LED_PIN,HIGH);
+        }
+        else {
+            digitalWrite(LED_PIN,LOW); 
+        }
+    }
+   
+    while (Serial.available()) {
+        Serial.read();
+    }
+    delay(500);
+    Serial.println("Is the LED turn on when the was motion detected? (y/n)");
+    while (Serial.available() == 0) {
+    }
+    char Response = Serial.read();
+    if (Response == 'y' || Response == 'Y') {
+        Serial.println("PIR Sensor is working correctly.");
+    }
+    else {
+        Serial.println("PIR Sensor test failed or not confirmed.");
+    }
 }
 
 void setup() {
@@ -124,10 +149,13 @@ void setup() {
   digitalWrite(ULTRASONIC_TRIGGER_PIN, LOW);
 
   pinMode(BUTTON_PIN, INPUT_PULLDOWN);
+
   pinMode(LED_PIN, OUTPUT);
 
+  pinMode(PIR_PIN, INPUT);
+
   Serial.println("Running tests...");
-  Serial.println("1 - Buzzer Test\n2 - Relay Test\n3 - Ultrasonic Sensor Test\n4 - Button and LED Test");
+  Serial.println("1 - Buzzer Test\n2 - Relay Test\n3 - Ultrasonic Sensor Test\n4 - Button and LED Test\n5 - PIR Sensor Test\n6 - All Tests");
 }
 
 void loop() {
@@ -148,6 +176,16 @@ void loop() {
     }
     else if (testNumber == 4) {
       buttonledTest();
+    }
+    else if (testNumber == 5) {
+      pirTest();
+    }
+    else if (testNumber == 6) {
+      buzzerTest();
+      relayTest();
+      ultrasonicTest();
+      buttonledTest();
+      pirTest();
     }
     else {
       Serial.println("Invalid test number. Please enter a valid test number.");
