@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en-us">
+<head>
+    <meta charset="UTF-8">
+    <title>Hardware Test Bench</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <h1>Hardware Test Bench</h1>
+        <div class="grid">
+            <button class="test-btn" onclick="runTest('buzzer')">Buzzer Test</button>
+            <button class="test-btn" onclick="runTest('relay')">Relay Test</button>
+            <button class="test-btn" onclick="runTest('ultrasonic')">Ultrasonic Test</button>
+            <button class="test-btn" onclick="runTest('buttonled')">Button/LED Test</button>
+            <button class="test-btn" onclick="runTest('pir')">PIR Test</button>
+        </div>
+        <div id="log">Waiting for command...</div>
+       <div id="ultrasonic-section" class="hidden">
+            <button class="test-btn" onclick="getDistance()">Read Distance</button>
+            <p>Distance: <span id="dist-value">--</span> cm</p>
+       </div>
+    </div>
+    <script src="script.js"></script>
+</body>
+</html>
