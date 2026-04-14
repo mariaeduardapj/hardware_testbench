@@ -21,10 +21,36 @@ body {
     display: none;
 }
 
+#log {
+    transition: color 0.3s ease;
+    font-weight: bold;
+}
+
+.offline-alert {
+    animation: blinker 1s linear infinite;
+}
+
+@keyframes blinker {
+    50% { opacity: 0; }
+}
+
+footer {
+    margin-top: 30px;
+    padding-top: 15px;
+    border-top: 1px solid #333;
+    text-align: center;
+}
+
 #system-version {
-    font-size: 0.8rem;
-    color: #888;
-    margin-top: -10px;
-    margin-bottom: 20px;
-    font-family: 'Courier New', Courier, monospace;
+    font-family: 'Consolas', 'monaco', monospace;
+    font-size: 11px;
+    color: #666; 
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+
+#conn-status {
+    font-size: 12px;
+    font-weight: bold;
+    color: #4caf50; 
 }

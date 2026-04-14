@@ -42,10 +42,13 @@ function getSystemInfo() {
     fetch('/info')
         .then(response => response.text())
         .then(data => {
-            document.getElementById('system-version').innerText = data;
+            document.getElementById('system-version').innerText = "Firmware: " + data;
+            document.getElementById('conn-status').innerText = "ONLINE";
+            document.getElementById('conn-status').style.color = "#4caf50";
         })
-        .catch(err => {
-            document.getElementById('system-version').innerText = "v0.0.0 (offline)";
+        .catch(() => {
+            document.getElementById('conn-status').innerText = "OFFLINE";
+            document.getElementById('conn-status').style.color = "#f44336";
         });
 }
 
