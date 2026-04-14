@@ -36,3 +36,17 @@ function getDistance() {
             log.innerText = "Connection error";
         });
 }
+
+
+function getSystemInfo() {
+    fetch('/info')
+        .then(response => response.text())
+        .then(data => {
+            document.getElementById('system-version').innerText = data;
+        })
+        .catch(err => {
+            document.getElementById('system-version').innerText = "v0.0.0 (offline)";
+        });
+}
+
+window.onload = getSystemInfo;

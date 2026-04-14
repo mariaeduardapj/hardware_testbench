@@ -8,7 +8,7 @@ const char* password = ""; // Enter the network password
 AsyncWebServer server(80);
 
 #define SYSTEM_NAME "Hardware Test Bench"
-#define SYSTEM_VERSION "v1.0.0"
+#define SYSTEM_VERSION "v1.0.1"
 
 #define BUZZER_PIN 15 
 #define RELAY_PIN 5
@@ -85,6 +85,12 @@ void pirTest() {
       }
     }
 }
+void playSucessTone() {
+  digitalWrite(BUZZER_PIN, LOW);
+  delay(100);
+  digitalWrite(BUZZER_PIN, HIGH);
+  delay(500);
+}
 
 void setup() {
   Serial.begin(115200);
@@ -106,6 +112,11 @@ void setup() {
   initWiFi();
 
   // Serving static files
+  server.on("/info", HTTP_GET, [](AsyncWebServerRequest *request){
+    String info = String(SYSTEM_NAME) + " " + String(SYSTEM_VERSION);
+    request->send(200, "text/plain", info);
+  });
+  
   server.on("/", HTTP_GET, [](AsyncWebServerRequest *request){
     request->send(LittleFS, "/index.html", "text/html");
   });
@@ -117,6 +128,7 @@ void setup() {
   });
 
   server.on("/ultrasonic", HTTP_GET, [](AsyncWebServerRequest *request){
+    playSucessTone();
     float distance = ultrasonicTest();
     
     // Converts the float to a string to sending via http  
@@ -125,6 +137,7 @@ void setup() {
 
   // Test master route
   server.on("/run", HTTP_GET, [](AsyncWebServerRequest *request){
+    playSucessTone();
     if (request->hasParam("test")) {
       String test = request->getParam("test")->value();
       Serial.println("Running via Web: " + test);
