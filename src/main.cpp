@@ -8,7 +8,7 @@ const char* password = ""; // Enter the network password
 AsyncWebServer server(80);
 
 #define SYSTEM_NAME "Hardware Test Bench"
-#define SYSTEM_VERSION "v1.0.2"
+#define SYSTEM_VERSION "v1.0.3"
 
 #define BUZZER_PIN 15 
 #define RELAY_PIN 5
