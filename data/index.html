@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Hardware Test Bench</title>
+    <link rel="icon" type="image/png" href="favicon.png">
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -16,17 +17,27 @@
             <button class="test-btn" onclick="runTest('buttonled')">Button/LED Test</button>
             <button class="test-btn" onclick="runTest('pir')">PIR Test</button>
         </div>
+        
         <div id="log">Waiting for command...</div>
-       <div id="ultrasonic-section" class="hidden">
+
+        <div id="ultrasonic-section" class="hidden">
             <button class="test-btn" onclick="getDistance()">Read Distance</button>
             <p>Distance: <span id="dist-value">--</span> cm</p>
-       </div>
+        </div>
+
+        <div class="log-container">
+            <h3>Activity Log</h3>
+            <ul id="event-log">
+                <li>System started...</li>
+            </ul>
+        </div>
     </div>
-</div>
+
+    <footer>
+        <p id="conn-status">Checking...</p>
+        <p id="system-version">Loading firmware info...</p>
+    </footer>
+
     <script src="script.js"></script>
 </body>
-<footer>
-    <p>System Status: <span id="conn-status">Checking...</span></p>
-    <p id="system-version">Loading firmware info...</p>
-</footer>
 </html>

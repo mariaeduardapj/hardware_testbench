@@ -8,7 +8,7 @@ const char* password = ""; // Enter the network password
 AsyncWebServer server(80);
 
 #define SYSTEM_NAME "Hardware Test Bench"
-#define SYSTEM_VERSION "v1.0.3"
+#define SYSTEM_VERSION "v1.1.0"
 
 #define BUZZER_PIN 15 
 #define RELAY_PIN 5
@@ -125,6 +125,10 @@ void setup() {
   });
   server.on("/script.js", HTTP_GET, [](AsyncWebServerRequest *request){
     request->send(LittleFS, "/script.js", "text/javascript");
+  });
+
+  server.on("/favicon.png", HTTP_GET, [](AsyncWebServerRequest *request){
+    request->send(LittleFS, "/favicon.png", "image/png");
   });
 
   server.on("/ultrasonic", HTTP_GET, [](AsyncWebServerRequest *request){

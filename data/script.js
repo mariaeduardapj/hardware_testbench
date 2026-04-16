@@ -53,3 +53,34 @@ function getSystemInfo() {
 }
 
 window.onload = getSystemInfo;
+
+function addLog(message) {
+    const logList = document.getElementById('event-log');
+    const now = new Date();
+    const time = now.getHours().toString().padStart(2, '0') + ":" + 
+                 now.getMinutes().toString().padStart(2, '0') + ":" + 
+                 now.getSeconds().toString().padStart(2, '0');
+
+
+    const newEntry = document.createElement('li');
+    newEntry.innerHTML = `<strong>[${time}]</strong> ${message}`;
+    
+
+    logList.insertBefore(newEntry, logList.firstChild);
+
+
+    if (logList.children.length > 10) {
+        logList.removeChild(logList.lastChild);
+    }
+}
+
+
+function runTest(testName) {
+    addLog(`Initiated: ${testName}`);
+    
+    fetch(`/run?test=${testName}`)
+        .then(response => response.text())
+        .then(data => {
+            addLog(`Result: ${data}`);
+        });
+}
