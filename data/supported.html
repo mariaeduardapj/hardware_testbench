@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en-us">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Supported Devices | Hardware Test Bench</title>
+    <link rel="icon" type="image/png" href="favicon.png">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <main class="shell">
+        <section class="hero">
+            <div class="hero-topbar">
+                <div>
+                    <p class="eyebrow">Catalog</p>
+                    <h1>Supported Devices</h1>
+                    <p class="subtitle">
+                        This page lists the device types implemented in firmware today, including
+                        how many GPIOs each one needs.
+                    </p>
+                </div>
+
+                <div class="hero-links">
+                    <a class="hero-link" href="/">Back to test bench</a>
+                    <a class="hero-link" href="https://github.com/mariaeduardapj" target="_blank" rel="noreferrer">GitHub profile</a>
+                </div>
+            </div>
+        </section>
+
+        <section class="panel">
+            <div class="section-heading">
+                <p class="eyebrow">Firmware catalog</p>
+                <h2>Available device types</h2>
+            </div>
+
+            <div id="catalog-list" class="catalog-list"></div>
+            <p class="hint" id="board-list">Loading board support...</p>
+        </section>
+    </main>
+
+    <script src="supported.js"></script>
+</body>
+</html>

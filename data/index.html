@@ -8,36 +8,126 @@
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
-    <div class="container">
-        <h1>⚙️ Hardware Test Bench</h1>
-        <div class="grid">
-            <button class="test-btn" onclick="runTest('buzzer')">Buzzer Test</button>
-            <button class="test-btn" onclick="runTest('relay')">Relay Test</button>
-            <button class="test-btn" onclick="runTest('ultrasonic')">Ultrasonic Test</button>
-            <button class="test-btn" onclick="runTest('buttonled')">Button/LED Test</button>
-            <button class="test-btn" onclick="runTest('pir')">PIR Test</button>
-        </div>
-        
-        <div id="log">Waiting for command...</div>
+    <main class="shell">
+        <section class="hero">
+            <div class="hero-topbar">
+                <div>
+                    <p class="eyebrow">Custom ESP32 Validation Desk</p>
+                    <h1>Hardware Test Bench</h1>
+                    <p class="subtitle">
+                        Register supported devices, define the GPIOs wired to your ESP32,
+                        and run tests without editing the firmware pin map first.
+                    </p>
+                </div>
 
-        <div id="ultrasonic-section" class="hidden">
-            <button class="test-btn" onclick="getDistance()">Read Distance</button>
-            <p>Distance: <span id="dist-value">--</span> cm</p>
-        </div>
+                <div class="hero-links">
+                    <a class="hero-link" href="supported.html">Supported devices</a>
+                    <a class="hero-link" href="https://github.com/mariaeduardapj" target="_blank" rel="noreferrer">GitHub profile</a>
+                </div>
+            </div>
 
-        <div class="log-container">
-            <h3>Activity Log</h3>
-            <ul id="event-log">
-                <li>System started...</li>
-            </ul>
-        </div>
-    </div>
+            <div class="hero-meta">
+                <div class="meta-card">
+                    <span class="meta-label">Connection</span>
+                    <strong id="conn-status">Checking...</strong>
+                </div>
+                <div class="meta-card">
+                    <span class="meta-label">Firmware</span>
+                    <strong id="system-version">Loading...</strong>
+                </div>
+                <div class="meta-card">
+                    <span class="meta-label">Compatibility</span>
+                    <strong id="compatibility-note">Loading...</strong>
+                </div>
+            </div>
+        </section>
 
-    <footer>
-        <p id="conn-status">Checking...</p>
-        <p id="system-version">Loading firmware info...</p>
-    </footer>
+        <section class="panel">
+            <div class="card">
+                <div class="section-heading">
+                    <p class="eyebrow">Step 1</p>
+                    <h2>Add device</h2>
+                </div>
+
+                <form id="device-form" class="device-form">
+                    <label>
+                        <span>Supported device</span>
+                        <select id="device-type" name="type" required></select>
+                    </label>
+
+                    <label>
+                        <span>Display name</span>
+                        <input id="device-name" name="name" type="text" maxlength="32" placeholder="Example: Relay bench" required>
+                    </label>
+
+                    <label>
+                        <span id="pin-a-label">Primary GPIO</span>
+                        <input id="pin-a" name="pinA" type="number" min="0" max="39" required>
+                    </label>
+
+                    <label id="pin-b-wrapper">
+                        <span id="pin-b-label">Secondary GPIO</span>
+                        <input id="pin-b" name="pinB" type="number" min="0" max="39">
+                    </label>
+
+                    <button class="action-btn" type="submit">Register device</button>
+                </form>
+
+                <p class="hint" id="board-list">
+                    Loading board support...
+                </p>
+                <p class="hint">
+                    You can see the list of all supported devices on the dedicated page.
+                </p>
+            </div>
+        </section>
+
+        <section class="panel">
+            <div class="section-heading">
+                <p class="eyebrow">Step 2</p>
+                <h2>Configured devices</h2>
+            </div>
+
+            <div id="device-list" class="device-list empty-state">
+                No devices registered yet.
+            </div>
+        </section>
+
+        <section class="panel">
+            <div class="section-heading">
+                <p class="eyebrow">Console</p>
+                <h2>Status and activity</h2>
+            </div>
+
+            <div id="status-banner" class="status-banner">Waiting for your first device registration.</div>
+
+            <div class="log-container">
+                <ul id="event-log">
+                    <li>Interface initialized.</li>
+                </ul>
+            </div>
+        </section>
+    </main>
 
     <script src="script.js"></script>
 </body>
+<footer>
+    <article class="developer-card">
+                <img
+                    class="developer-avatar"
+                    src="https://github.com/mariaeduardapj.png"
+                    alt="Profile picture of developer Maria Eduarda"
+                >
+                <div>
+                    <p class="meta-label">Developer</p>
+                    <h2>Maria Eduarda</h2>
+                    <p class="developer-copy">
+                        Firmware logic, validation flow, and test bench design by the project author.
+                    </p>
+                    <a class="developer-link" href="https://github.com/mariaeduardapj" target="_blank" rel="noreferrer">
+                        github.com/mariaeduardapj
+                    </a>
+                </div>
+    </article>
+</footer>
 </html>
