@@ -1,6 +1,7 @@
 const state = {
     catalog: null,
-    devices: []
+    devices: [],
+    pollingTimers: {}
 };
 
 const typeField = document.getElementById("device-type");
@@ -31,6 +32,14 @@ function setStatus(message, tone = "neutral") {
     statusBanner.dataset.tone = tone;
 }
 
+function escapeHtml(value) {
+    return String(value)
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;");
+}
+
 function getSelectedTypeMeta() {
     return state.catalog?.deviceTypes.find((item) => item.id === typeField.value) || null;
 }
@@ -44,7 +53,6 @@ function updatePinFields() {
     pinAInfo.textContent = selected.pinLabels[0] || "Primary GPIO";
     nameField.placeholder = `Example: ${selected.label} #1`;
 
-    // Show or hide the second GPIO field according to the selected device type.
     if (selected.pins > 1) {
         pinBWrapper.classList.remove("hidden");
         pinBField.required = true;
@@ -56,19 +64,60 @@ function updatePinFields() {
     }
 }
 
+function getResultTone(value) {
+    if (value === "PASS") {
+        return "pass";
+    }
+    if (value === "FAIL") {
+        return "fail";
+    }
+    return "pending";
+}
+
+function formatTimestamp(timestampMs) {
+    if (!timestampMs) {
+        return "Not available yet";
+    }
+    return `${timestampMs} ms since ESP32 boot`;
+}
+
+function buildActionButtons(device) {
+    const test = device.test;
+    const disableRun = test.status === "Running" ? "disabled" : "";
+    const finalizeButtons = test.status === "Completed" && test.userCanOverride
+        ? `
+            <button class="ghost-btn" type="button" onclick="finalizeTest(${device.id}, '${test.suggestedResult}')">
+                Confirm ${test.suggestedResult}
+            </button>
+            <button class="ghost-btn danger" type="button" onclick="finalizeTest(${device.id}, 'FAIL')">
+                Force FAIL
+            </button>
+            <button class="ghost-btn" type="button" onclick="finalizeTest(${device.id}, 'PASS')">
+                Force PASS
+            </button>
+        `
+        : "";
+
+    return `
+        <button class="ghost-btn" type="button" onclick="runDeviceTest(${device.id})" ${disableRun}>Run test</button>
+        ${finalizeButtons}
+        <button class="ghost-btn danger" type="button" onclick="removeDevice(${device.id})">Remove</button>
+    `;
+}
+
 function renderCatalog() {
     if (!state.catalog || !typeField) {
         return;
     }
-    
-    // Build the device-type selector from the firmware catalog instead of hardcoding options.
+
     typeField.innerHTML = state.catalog.deviceTypes
         .map((item) => `<option value="${item.id}">${item.label}</option>`)
         .join("");
 
     if (boardList) {
-        boardList.textContent = `Tested support: ${state.catalog.supportedBoards.join(", ")}. Other ESP32 variants with equivalent GPIO behavior may work, but are not validated here yet.`;
+        boardList.textContent = `Tested support: ${state.catalog.supportedBoards.join(", ")}.`;
     }
+
     document.getElementById("compatibility-note").textContent = state.catalog.compatibility;
     updatePinFields();
 }
@@ -80,24 +129,44 @@ function renderDevices() {
         return;
     }
 
-    // Render one card per configured device instance stored in the ESP32.
     deviceList.className = "device-list";
     deviceList.innerHTML = state.devices
         .map((device) => {
             const pins = device.hasSecondPin
                 ? `GPIOs ${device.pinA} / ${device.pinB}`
                 : `GPIO ${device.pinA}`;
+            const test = device.test;
+            const suggestedTone = getResultTone(test.suggestedResult);
+            const finalTone = getResultTone(test.finalResult);
 
             return `
                 <article class="device-card">
-                    <div>
-                        <p class="device-type">${device.typeLabel}</p>
-                        <h3>${device.name}</h3>
+                    <div class="device-main">
+                        <p class="device-type">${escapeHtml(device.typeLabel)}</p>
+                        <h3>${escapeHtml(device.name)}</h3>
                         <p class="device-pins">${pins}</p>
+
+                        <div class="test-grid">
+                            <div class="test-pill">
+                                <span class="meta-label">Status</span>
+                                <strong>${escapeHtml(test.status)}</strong>
+                            </div>
+                            <div class="test-pill result-${suggestedTone}">
+                                <span class="meta-label">Suggested</span>
+                                <strong>${escapeHtml(test.suggestedResult)}</strong>
+                            </div>
+                            <div class="test-pill result-${finalTone}">
+                                <span class="meta-label">Final</span>
+                                <strong>${escapeHtml(test.finalResult)}</strong>
+                            </div>
+                        </div>
+
+                        <p class="test-message">${escapeHtml(test.message)}</p>
+                        <p class="test-timestamp">Timestamp: ${escapeHtml(formatTimestamp(test.timestampMs))}</p>
                     </div>
+
                     <div class="device-actions">
-                        <button class="ghost-btn" type="button" onclick="runDeviceTest(${device.id})">Run test</button>
-                        <button class="ghost-btn danger" type="button" onclick="removeDevice(${device.id})">Remove</button>
+                        ${buildActionButtons(device)}
                     </div>
                 </article>
             `;
@@ -109,13 +178,57 @@ function getDeviceName(id) {
     return state.devices.find((device) => device.id === id)?.name || `Device ${id}`;
 }
 
+function updateDeviceTestState(id, testState) {
+    const device = state.devices.find((item) => item.id === id);
+    if (!device) {
+        return;
+    }
+
+    device.test = testState;
+    renderDevices();
+}
+
+function stopPolling(id) {
+    if (state.pollingTimers[id]) {
+        clearInterval(state.pollingTimers[id]);
+        delete state.pollingTimers[id];
+    }
+}
+
+function startPolling(id) {
+    stopPolling(id);
+
+    state.pollingTimers[id] = setInterval(async () => {
+        try {
+            const response = await fetch(`/run/status?id=${id}`);
+            if (!response.ok) {
+                throw new Error(await response.text());
+            }
+
+            const testState = await response.json();
+            updateDeviceTestState(id, testState);
+
+            if (testState.status === "Completed") {
+                stopPolling(id);
+
+                const tone = testState.suggestedResult === "FAIL" ? "error" : "success";
+                setStatus(`${getDeviceName(id)}: ${testState.message}`, tone);
+                addLog(`${getDeviceName(id)} completed with suggested result ${testState.suggestedResult}.`);
+            }
+        } catch (error) {
+            stopPolling(id);
+            setStatus(error.message, "error");
+            addLog(`Polling failed for ${getDeviceName(id)}: ${error.message}`);
+        }
+    }, 700);
+}
+
 async function fetchCatalog() {
     const response = await fetch("/catalog");
     if (!response.ok) {
         throw new Error("Unable to load catalog.");
     }
 
-    // The catalog tells the UI which device types are currently implemented in firmware.
     state.catalog = await response.json();
     renderCatalog();
 }
@@ -159,7 +272,6 @@ async function registerDevice(event) {
     }
 
     try {
-        // The firmware keeps the source of truth, so registration always happens server-side.
         const response = await fetch(`/devices/add?${params.toString()}`, {
             method: "POST"
         });
@@ -186,25 +298,46 @@ async function runDeviceTest(id) {
     addLog(`Started test for ${name}.`);
 
     try {
-        const response = await fetch(`/run?id=${id}`, { method: "POST" });
-        const message = await response.text();
-
+        const response = await fetch(`/run/start?id=${id}`, { method: "POST" });
         if (!response.ok) {
-            throw new Error(message);
+            throw new Error(await response.text());
         }
 
-        setStatus(message, "success");
-        addLog(`${name}: ${message}`);
+        const testState = await response.json();
+        updateDeviceTestState(id, testState);
+        startPolling(id);
     } catch (error) {
         setStatus(error.message, "error");
         addLog(`${name}: ${error.message}`);
     }
 }
 
+async function finalizeTest(id, result) {
+    const name = getDeviceName(id);
+
+    try {
+        const response = await fetch(`/run/finalize?id=${id}&result=${result}`, { method: "POST" });
+        if (!response.ok) {
+            throw new Error(await response.text());
+        }
+
+        const testState = await response.json();
+        updateDeviceTestState(id, testState);
+
+        const tone = result === "FAIL" ? "error" : "success";
+        setStatus(`${name}: final result ${result}.`, tone);
+        addLog(`${name}: final result set to ${result}.`);
+    } catch (error) {
+        setStatus(error.message, "error");
+        addLog(`${name}: finalize failed: ${error.message}`);
+    }
+}
+
 async function removeDevice(id) {
     const name = getDeviceName(id);
+    stopPolling(id);
+
     try {
-        // Tests run by device id, which lets multiple devices of the same type coexist.
         const response = await fetch(`/devices/remove?id=${id}`, { method: "POST" });
         const message = await response.text();
 
@@ -223,7 +356,6 @@ async function removeDevice(id) {
 
 async function initializeInterface() {
     try {
-        // Load connection state first, then hydrate the interface from firmware data.
         await fetchSystemInfo();
         await fetchCatalog();
         await fetchDevices();
@@ -238,6 +370,7 @@ async function initializeInterface() {
 document.getElementById("device-form").addEventListener("submit", registerDevice);
 typeField.addEventListener("change", updatePinFields);
 window.runDeviceTest = runDeviceTest;
+window.finalizeTest = finalizeTest;
 window.removeDevice = removeDevice;
 
 window.addEventListener("load", initializeInterface);

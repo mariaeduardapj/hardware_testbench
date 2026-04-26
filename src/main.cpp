@@ -3,17 +3,18 @@
 #include <LittleFS.h>
 #include <WiFi.h>
 
-const char *ssid = "";      // Enter the network name
-const char *password = "";  // Enter the network password
+const char *ssid = ""; // Change this to your WiFi network name
+const char *password = ""; // Change this to your WiFi password
 AsyncWebServer server(80);
 
 #define SYSTEM_NAME "Hardware Test Bench"
-#define SYSTEM_VERSION "v1.2.0"
+#define SYSTEM_VERSION "v1.2.1"
 #define COMPATIBILITY_NOTE "Tested on ESP32 DevKit boards"
 
 constexpr size_t MAX_DEVICES = 12;
 constexpr unsigned long BUTTON_LED_TIMEOUT_MS = 10000;
 constexpr unsigned long PIR_TIMEOUT_MS = 10000;
+constexpr unsigned long OUTPUT_PULSE_MS = 500;
 
 enum DeviceType {
   DEVICE_BUZZER,
@@ -25,6 +26,37 @@ enum DeviceType {
   DEVICE_UNKNOWN
 };
 
+enum ValidationState {
+  VALIDATION_PENDING,
+  VALIDATION_PASS,
+  VALIDATION_FAIL
+};
+
+enum TestStatus {
+  TEST_IDLE,
+  TEST_RUNNING,
+  TEST_COMPLETED
+};
+
+enum TestPhase {
+  PHASE_IDLE,
+  PHASE_WAITING_INPUT,
+  PHASE_OUTPUT_ACTIVE
+};
+
+struct TestState {
+  TestStatus status = TEST_IDLE;
+  TestPhase phase = PHASE_IDLE;
+  ValidationState suggestedResult = VALIDATION_PENDING;
+  ValidationState finalResult = VALIDATION_PENDING;
+  bool awaitingConfirmation = false;
+  bool userCanOverride = false;
+  unsigned long startedAtMs = 0;
+  unsigned long timestampMs = 0;
+  unsigned long stepStartedAtMs = 0;
+  String message = "Ready to run.";
+};
+
 struct DeviceConfig {
   bool active = false;
   uint8_t id = 0;
@@ -32,6 +64,7 @@ struct DeviceConfig {
   String name;
   int pinA = -1;
   int pinB = -1;
+  TestState testState;
 };
 
 DeviceConfig devices[MAX_DEVICES];
@@ -107,11 +140,32 @@ const char *deviceTypeLabel(DeviceType type) {
   }
 }
 
+const char *validationStateToString(ValidationState state) {
+  switch (state) {
+    case VALIDATION_PASS:
+      return "PASS";
+    case VALIDATION_FAIL:
+      return "FAIL";
+    default:
+      return "PENDING";
+  }
+}
+
+const char *testStatusToString(TestStatus status) {
+  switch (status) {
+    case TEST_RUNNING:
+      return "Running";
+    case TEST_COMPLETED:
+      return "Completed";
+    default:
+      return "Idle";
+  }
+}
+
 String jsonEscape(const String &value) {
   String escaped;
   escaped.reserve(value.length() + 8);
 
-  // Escape user-provided strings before sending them back as JSON.
   for (size_t i = 0; i < value.length(); ++i) {
     const char ch = value[i];
     if (ch == '\\' || ch == '"') {
@@ -174,11 +228,7 @@ bool requiresSecondPin(DeviceType type) {
 }
 
 bool isPinAOutput(DeviceType type) {
-  return type == DEVICE_BUZZER || type == DEVICE_RELAY || type == DEVICE_ULTRASONIC  || type == DEVICE_LED;
-}
-
-bool isPinAInput(DeviceType type) {
-  return type == DEVICE_BUTTON;
+  return type == DEVICE_BUZZER || type == DEVICE_RELAY || type == DEVICE_ULTRASONIC || type == DEVICE_LED;
 }
 
 String validatePins(DeviceType type, int pinA, int pinB) {
@@ -186,7 +236,6 @@ String validatePins(DeviceType type, int pinA, int pinB) {
     return "Primary GPIO is not valid for ESP32 DevKit.";
   }
 
-  // Some device types drive a signal directly, so they need output-capable pins.
   if (isPinAOutput(type) && !isOutputCapablePin(pinA)) {
     return "Primary GPIO must support output for this device type.";
   }
@@ -198,16 +247,12 @@ String validatePins(DeviceType type, int pinA, int pinB) {
     if (pinA == pinB) {
       return "Primary and secondary GPIOs must be different.";
     }
-    if (requiresSecondPin(type) && !isOutputCapablePin(pinB)) {
-      return "Secondary GPIO must support output for this device type.";
-    }
   }
 
   return "";
 }
 
 String validateDevicePinsAgainstRegistry(DeviceType type, int pinA, int pinB, int ignoreId = -1) {
-  // Prevent two active devices from claiming the same physical GPIO.
   for (size_t i = 0; i < MAX_DEVICES; ++i) {
     if (!devices[i].active || devices[i].id == ignoreId) {
       continue;
@@ -225,7 +270,6 @@ String validateDevicePinsAgainstRegistry(DeviceType type, int pinA, int pinB, in
 }
 
 void configureDevicePins(const DeviceConfig &device) {
-  // Configure GPIO direction only after a device has been validated and registered.
   switch (device.type) {
     case DEVICE_BUZZER:
       pinMode(device.pinA, OUTPUT);
@@ -276,125 +320,174 @@ int findFreeDeviceSlot() {
 }
 
 void successToneOnAnyBuzzer() {
-  // Use the first available buzzer as optional audible feedback for web-triggered actions.
   for (size_t i = 0; i < MAX_DEVICES; ++i) {
     if (!devices[i].active || devices[i].type != DEVICE_BUZZER) {
       continue;
     }
 
     digitalWrite(devices[i].pinA, LOW);
-    delay(70);
-    digitalWrite(devices[i].pinA, HIGH);
-    delay(70);
-    digitalWrite(devices[i].pinA, LOW);
-    delay(70);
+    delay(40);
     digitalWrite(devices[i].pinA, HIGH);
     return;
   }
 }
 
-String runBuzzerTest(const DeviceConfig &device) {
-  digitalWrite(device.pinA, LOW);
-  delay(80);
-  digitalWrite(device.pinA, HIGH);
-  delay(500);
-  digitalWrite(device.pinA, LOW);
-  delay(80);
-  digitalWrite(device.pinA, HIGH);
-  return "Buzzer test completed on GPIO " + String(device.pinA) + ".";
+bool usesHybridConfirmation(DeviceType type) {
+  return type == DEVICE_BUZZER || type == DEVICE_RELAY || type == DEVICE_LED;
 }
 
-String runRelayTest(const DeviceConfig &device) {
-  digitalWrite(device.pinA, LOW);
-  delay(1000);
-  digitalWrite(device.pinA, HIGH);
-  return "Relay test completed on GPIO " + String(device.pinA) + ".";
+void resetTestState(DeviceConfig &device) {
+  device.testState = TestState();
 }
 
-String runUltrasonicTest(const DeviceConfig &device) {
-  digitalWrite(device.pinA, LOW);
-  delayMicroseconds(2);
-  digitalWrite(device.pinA, HIGH);
-  delayMicroseconds(10);
-  digitalWrite(device.pinA, LOW);
-
-  unsigned long duration = pulseIn(device.pinB, HIGH, 30000);
-  if (duration == 0) {
-    return "Ultrasonic reading timed out. Check trigger/echo wiring.";
-  }
-
-  float distance = (duration / 2.0F) * 0.0343F;
-  return "Distance measured: " + String(distance, 2) + " cm.";
+void completeTest(DeviceConfig &device, ValidationState suggestedResult, const String &message, bool awaitingConfirmation) {
+  device.testState.status = TEST_COMPLETED;
+  device.testState.phase = PHASE_IDLE;
+  device.testState.suggestedResult = suggestedResult;
+  device.testState.finalResult = awaitingConfirmation ? VALIDATION_PENDING : suggestedResult;
+  device.testState.awaitingConfirmation = awaitingConfirmation;
+  device.testState.userCanOverride = true;
+  device.testState.timestampMs = millis();
+  device.testState.message = message;
 }
 
-String runButtonTest(const DeviceConfig &device) {
-  unsigned long startedAt = millis();
-  // Wait for a real button press, but avoid blocking forever.
-  while (digitalRead(device.pinA) == LOW) {
-    if (millis() - startedAt > BUTTON_LED_TIMEOUT_MS) {
-      return "Button test timed out. Press the button and try again.";
-    }
-    delay(10);
-  }
-  return "Button press detected successfully.";
-}
-
-String runLedTest(const DeviceConfig &device) {
-  digitalWrite(device.pinA, HIGH);
-  delay(500);
-  digitalWrite(device.pinA, LOW);
-  return "LED test completed on GPIO " + String(device.pinA) + ".";
-}
-
-String runPirTest(const DeviceConfig &device) {
-  unsigned long startedAt = millis();
-  // PIR sensors are passive inputs, so this test only waits for a motion event.
-  while (millis() - startedAt <= PIR_TIMEOUT_MS) {
-    if (digitalRead(device.pinA) == HIGH) {
-      return "Motion detected on GPIO " + String(device.pinA) + ".";
-    }
-    delay(50);
-  }
-
-  return "No motion detected before timeout.";
-}
-
-String executeTest(const DeviceConfig &device) {
-  Serial.println("Running device test: " + device.name + " [" + String(deviceTypeToString(device.type)) + "]");
+void startTest(DeviceConfig &device) {
+  device.testState.status = TEST_RUNNING;
+  device.testState.phase = PHASE_IDLE;
+  device.testState.suggestedResult = VALIDATION_PENDING;
+  device.testState.finalResult = VALIDATION_PENDING;
+  device.testState.awaitingConfirmation = false;
+  device.testState.userCanOverride = false;
+  device.testState.startedAtMs = millis();
+  device.testState.stepStartedAtMs = millis();
+  device.testState.timestampMs = 0;
+  device.testState.message = "Test started.";
 
   switch (device.type) {
-    case DEVICE_BUZZER:
-      return runBuzzerTest(device);
-    case DEVICE_RELAY:
-      return runRelayTest(device);
-    case DEVICE_ULTRASONIC:
-      return runUltrasonicTest(device);
     case DEVICE_BUTTON:
-      return runButtonTest(device);
-    case DEVICE_LED:
-      return runLedTest(device);
     case DEVICE_PIR:
-      return runPirTest(device);
+      device.testState.phase = PHASE_WAITING_INPUT;
+      device.testState.message = "Waiting for input event...";
+      break;
+    case DEVICE_LED:
+      digitalWrite(device.pinA, HIGH);
+      device.testState.phase = PHASE_OUTPUT_ACTIVE;
+      device.testState.message = "LED turned on. Suggested result will be PASS. Please confirm what you saw.";
+      break;
+    case DEVICE_RELAY:
+      digitalWrite(device.pinA, LOW);
+      device.testState.phase = PHASE_OUTPUT_ACTIVE;
+      device.testState.message = "Relay activated. Suggested result will be PASS. Please confirm the click/output.";
+      break;
+    case DEVICE_BUZZER:
+      digitalWrite(device.pinA, LOW);
+      device.testState.phase = PHASE_OUTPUT_ACTIVE;
+      device.testState.message = "Buzzer activated. Suggested result will be PASS. Please confirm the sound.";
+      break;
+    case DEVICE_ULTRASONIC:
+      digitalWrite(device.pinA, LOW);
+      delayMicroseconds(2);
+      digitalWrite(device.pinA, HIGH);
+      delayMicroseconds(10);
+      digitalWrite(device.pinA, LOW);
+      {
+        unsigned long duration = pulseIn(device.pinB, HIGH, 30000);
+        if (duration == 0) {
+          completeTest(device, VALIDATION_FAIL, "Ultrasonic reading timed out. Check trigger/echo wiring.", false);
+        } else {
+          float distance = (duration / 2.0F) * 0.0343F;
+          completeTest(device, VALIDATION_PASS, "Distance measured: " + String(distance, 2) + " cm.", false);
+        }
+      }
+      break;
     default:
-      return "Unsupported device type.";
+      completeTest(device, VALIDATION_FAIL, "Unsupported device type.", false);
+      break;
+  }
+}
+
+void updateRunningTest(DeviceConfig &device) {
+  if (!device.active || device.testState.status != TEST_RUNNING) {
+    return;
+  }
+
+  const unsigned long now = millis();
+
+  switch (device.type) {
+    case DEVICE_PIR:
+      if (digitalRead(device.pinA) == HIGH) {
+        completeTest(device, VALIDATION_PASS, "Motion detected -> PASS. Confirm result?", true);
+      } else if (now - device.testState.startedAtMs >= PIR_TIMEOUT_MS) {
+        completeTest(device, VALIDATION_FAIL, "No motion detected within 10 seconds -> FAIL. Confirm result?", true);
+      }
+      break;
+
+    case DEVICE_BUTTON:
+      if (digitalRead(device.pinA) == HIGH) {
+        completeTest(device, VALIDATION_PASS, "Button press detected -> PASS. Confirm result?", true);
+      } else if (now - device.testState.startedAtMs >= BUTTON_LED_TIMEOUT_MS) {
+        completeTest(device, VALIDATION_FAIL, "No button press detected within 10 seconds -> FAIL. Confirm result?", true);
+      }
+      break;
+
+    case DEVICE_LED:
+      if (device.testState.phase == PHASE_OUTPUT_ACTIVE && now - device.testState.stepStartedAtMs >= OUTPUT_PULSE_MS) {
+        digitalWrite(device.pinA, LOW);
+        completeTest(device, VALIDATION_PASS, "LED pulse completed -> PASS suggested. Confirm if the LED lit correctly.", true);
+      }
+      break;
+
+    case DEVICE_RELAY:
+      if (device.testState.phase == PHASE_OUTPUT_ACTIVE && now - device.testState.stepStartedAtMs >= OUTPUT_PULSE_MS) {
+        digitalWrite(device.pinA, HIGH);
+        completeTest(device, VALIDATION_PASS, "Relay pulse completed -> PASS suggested. Confirm if the relay switched correctly.", true);
+      }
+      break;
+
+    case DEVICE_BUZZER:
+      if (device.testState.phase == PHASE_OUTPUT_ACTIVE && now - device.testState.stepStartedAtMs >= OUTPUT_PULSE_MS) {
+        digitalWrite(device.pinA, HIGH);
+        completeTest(device, VALIDATION_PASS, "Buzzer pulse completed -> PASS suggested. Confirm if the sound was heard.", true);
+      }
+      break;
+
+    default:
+      break;
+  }
+}
+
+void updateRunningTests() {
+  for (size_t i = 0; i < MAX_DEVICES; ++i) {
+    updateRunningTest(devices[i]);
   }
 }
 
 String buildCatalogJson() {
-  // The frontend uses this catalog to build the form dynamically.
   return String("{") +
          "\"systemName\":\"" + String(SYSTEM_NAME) + "\"," +
          "\"version\":\"" + String(SYSTEM_VERSION) + "\"," +
          "\"compatibility\":\"" + String(COMPATIBILITY_NOTE) + "\"," +
          "\"supportedBoards\":[\"ESP32 DevKit\"]," +
          "\"deviceTypes\":[" +
-         "{\"id\":\"buzzer\",\"label\":\"Buzzer\",\"pins\":1,\"pinLabels\":[\"Signal GPIO\"]}," +
-         "{\"id\":\"relay\",\"label\":\"Relay\",\"pins\":1,\"pinLabels\":[\"Signal GPIO\"]}," +
-         "{\"id\":\"ultrasonic\",\"label\":\"Ultrasonic Sensor\",\"pins\":2,\"pinLabels\":[\"Trigger GPIO\",\"Echo GPIO\"]}," +
-         "{\"id\":\"button\",\"label\":\"Button\",\"pins\":1,\"pinLabels\":[\"Signal GPIO\"]}," +
-         "{\"id\":\"led\",\"label\":\"LED\",\"pins\":1,\"pinLabels\":[\"Signal GPIO\"]}," +
-         "{\"id\":\"pir\",\"label\":\"PIR Motion Sensor\",\"pins\":1,\"pinLabels\":[\"Signal GPIO\"]}" +
+         "{\"id\":\"buzzer\",\"label\":\"Buzzer\",\"pins\":1,\"pinLabels\":[\"Signal GPIO\"],\"hybridValidation\":true}," +
+         "{\"id\":\"relay\",\"label\":\"Relay\",\"pins\":1,\"pinLabels\":[\"Signal GPIO\"],\"hybridValidation\":true}," +
+         "{\"id\":\"ultrasonic\",\"label\":\"Ultrasonic Sensor\",\"pins\":2,\"pinLabels\":[\"Trigger GPIO\",\"Echo GPIO\"],\"hybridValidation\":false}," +
+         "{\"id\":\"button\",\"label\":\"Button\",\"pins\":1,\"pinLabels\":[\"Signal GPIO\"],\"hybridValidation\":true}," +
+         "{\"id\":\"led\",\"label\":\"LED\",\"pins\":1,\"pinLabels\":[\"Signal GPIO\"],\"hybridValidation\":true}," +
+         "{\"id\":\"pir\",\"label\":\"PIR Motion Sensor\",\"pins\":1,\"pinLabels\":[\"Signal GPIO\"],\"hybridValidation\":true}" +
          "]" +
+         "}";
+}
+
+String buildTestStateJson(const TestState &testState) {
+  return String("{") +
+         "\"status\":\"" + String(testStatusToString(testState.status)) + "\"," +
+         "\"suggestedResult\":\"" + String(validationStateToString(testState.suggestedResult)) + "\"," +
+         "\"finalResult\":\"" + String(validationStateToString(testState.finalResult)) + "\"," +
+         "\"message\":\"" + jsonEscape(testState.message) + "\"," +
+         "\"timestampMs\":" + String(testState.timestampMs) + "," +
+         "\"awaitingConfirmation\":" + String(testState.awaitingConfirmation ? "true" : "false") + "," +
+         "\"userCanOverride\":" + String(testState.userCanOverride ? "true" : "false") +
          "}";
 }
 
@@ -402,7 +495,6 @@ String buildDevicesJson() {
   String json = "[";
   bool first = true;
 
-  // Return only active device slots so the UI can render the current bench state.
   for (size_t i = 0; i < MAX_DEVICES; ++i) {
     if (!devices[i].active) {
       continue;
@@ -420,7 +512,9 @@ String buildDevicesJson() {
     json += "\"typeLabel\":\"" + String(deviceTypeLabel(devices[i].type)) + "\",";
     json += "\"pinA\":" + String(devices[i].pinA) + ",";
     json += "\"pinB\":" + String(devices[i].pinB) + ",";
-    json += "\"hasSecondPin\":" + String(requiresSecondPin(devices[i].type) ? "true" : "false");
+    json += "\"hasSecondPin\":" + String(requiresSecondPin(devices[i].type) ? "true" : "false") + ",";
+    json += "\"hybridValidation\":" + String(usesHybridConfirmation(devices[i].type) ? "true" : "false") + ",";
+    json += "\"test\":" + buildTestStateJson(devices[i].testState);
     json += "}";
   }
 
@@ -479,7 +573,6 @@ void setupRoutes() {
     const int pinA = requestParamValue(request, "pinA").toInt();
     const int pinB = requestParamValue(request, "pinB").toInt();
 
-    // Register a new device instance based on the type selected in the web UI.
     DeviceType type = deviceTypeFromString(typeRaw);
     if (type == DEVICE_UNKNOWN) {
       request->send(400, "text/plain", "Unsupported device type.");
@@ -515,6 +608,7 @@ void setupRoutes() {
     devices[slot].name = name;
     devices[slot].pinA = pinA;
     devices[slot].pinB = requiresSecondPin(type) ? pinB : -1;
+    resetTestState(devices[slot]);
     configureDevicePins(devices[slot]);
 
     Serial.println("Device registered: " + devices[slot].name + " (" + String(deviceTypeToString(type)) + ")");
@@ -535,7 +629,7 @@ void setupRoutes() {
     request->send(200, "text/plain", "Device removed.");
   });
 
-  server.on("/run", HTTP_POST, [](AsyncWebServerRequest *request) {
+  server.on("/run/start", HTTP_POST, [](AsyncWebServerRequest *request) {
     const int id = requestParamValue(request, "id").toInt();
     DeviceConfig *device = findDeviceById(id);
 
@@ -544,10 +638,66 @@ void setupRoutes() {
       return;
     }
 
-    // Execute the test against one configured device instead of a global fixed pin map.
+    if (device->testState.status == TEST_RUNNING) {
+      request->send(400, "text/plain", "A test is already running for this device.");
+      return;
+    }
+
     successToneOnAnyBuzzer();
-    String result = executeTest(*device);
-    request->send(200, "text/plain", result);
+    startTest(*device);
+    Serial.println("Running device test: " + device->name + " [" + String(deviceTypeToString(device->type)) + "]");
+    request->send(200, "application/json", buildTestStateJson(device->testState));
+  });
+
+  server.on("/run/status", HTTP_GET, [](AsyncWebServerRequest *request) {
+    const int id = requestParamValue(request, "id").toInt();
+    DeviceConfig *device = findDeviceById(id);
+
+    if (device == nullptr) {
+      request->send(404, "text/plain", "Device not found.");
+      return;
+    }
+
+    request->send(200, "application/json", buildTestStateJson(device->testState));
+  });
+
+  server.on("/run/finalize", HTTP_POST, [](AsyncWebServerRequest *request) {
+    const int id = requestParamValue(request, "id").toInt();
+    const String resultRaw = requestParamValue(request, "result");
+    DeviceConfig *device = findDeviceById(id);
+
+    if (device == nullptr) {
+      request->send(404, "text/plain", "Device not found.");
+      return;
+    }
+
+    if (device->testState.status != TEST_COMPLETED) {
+      request->send(400, "text/plain", "There is no completed test to confirm.");
+      return;
+    }
+
+    ValidationState chosenResult = VALIDATION_PENDING;
+    if (resultRaw == "PASS") {
+      chosenResult = VALIDATION_PASS;
+    } else if (resultRaw == "FAIL") {
+      chosenResult = VALIDATION_FAIL;
+    } else {
+      request->send(400, "text/plain", "Result must be PASS or FAIL.");
+      return;
+    }
+
+    device->testState.finalResult = chosenResult;
+    device->testState.awaitingConfirmation = false;
+    device->testState.userCanOverride = true;
+    device->testState.timestampMs = millis();
+
+    if (chosenResult == device->testState.suggestedResult) {
+      device->testState.message += " User confirmed suggested result.";
+    } else {
+      device->testState.message += " User override applied.";
+    }
+
+    request->send(200, "application/json", buildTestStateJson(device->testState));
   });
 }
 
@@ -566,5 +716,5 @@ void setup() {
 }
 
 void loop() {
-  // All operations are handled by the async web server callbacks.
+  updateRunningTests();
 }

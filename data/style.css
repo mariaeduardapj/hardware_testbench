@@ -283,13 +283,57 @@ button:focus {
     display: flex;
     justify-content: space-between;
     gap: 18px;
-    align-items: center;
+    align-items: flex-start;
+}
+
+.device-main {
+    flex: 1;
+}
+
+.test-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    gap: 10px;
+    margin: 14px 0;
+}
+
+.test-pill {
+    padding: 12px;
+    border-radius: 16px;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(157, 176, 202, 0.1);
+}
+
+.result-pass {
+    border-color: rgba(104, 211, 145, 0.34);
+    color: #c9f6db;
+}
+
+.result-fail {
+    border-color: rgba(255, 111, 97, 0.34);
+    color: #ffd2cd;
+}
+
+.result-pending {
+    border-color: rgba(157, 176, 202, 0.18);
+}
+
+.test-message,
+.test-timestamp {
+    margin: 0 0 8px;
+    color: var(--muted);
 }
 
 .device-actions {
     display: grid;
     gap: 10px;
     min-width: 150px;
+}
+
+.device-actions button:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+    transform: none;
 }
 
 .status-banner {
