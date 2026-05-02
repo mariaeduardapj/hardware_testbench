@@ -15,6 +15,8 @@ const deviceList = document.getElementById("device-list");
 const boardList = document.getElementById("board-list");
 const statusBanner = document.getElementById("status-banner");
 const eventLog = document.getElementById("event-log");
+const logFormatField = document.getElementById("log-format");
+const downloadLogsButton = document.getElementById("download-logs-btn");
 
 function addLog(message) {
     const timestamp = new Date().toLocaleTimeString("en-GB");
@@ -354,6 +356,13 @@ async function removeDevice(id) {
     }
 }
 
+function downloadLogs() {
+    const format = logFormatField?.value || "txt";
+    const downloadUrl = `/download-logs?format=${encodeURIComponent(format)}`;
+    window.location.href = downloadUrl;
+    addLog(`Requested log download in ${format.toUpperCase()} format.`);
+}
+
 async function initializeInterface() {
     try {
         await fetchSystemInfo();
@@ -369,6 +378,7 @@ async function initializeInterface() {
 
 document.getElementById("device-form").addEventListener("submit", registerDevice);
 typeField.addEventListener("change", updatePinFields);
+downloadLogsButton?.addEventListener("click", downloadLogs);
 window.runDeviceTest = runDeviceTest;
 window.finalizeTest = finalizeTest;
 window.removeDevice = removeDevice;

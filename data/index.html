@@ -94,9 +94,23 @@
         </section>
 
         <section class="panel">
-            <div class="section-heading">
-                <p class="eyebrow">Console</p>
-                <h2>Status and activity</h2>
+            <div class="console-header">
+                <div class="section-heading">
+                    <p class="eyebrow">Console</p>
+                    <h2>Status and activity</h2>
+                </div>
+
+                <div class="download-controls">
+                    <label class="download-field" for="log-format">
+                        <span>Format</span>
+                        <select id="log-format">
+                            <option value="txt">TXT</option>
+                            <option value="csv">CSV</option>
+                        </select>
+                    </label>
+
+                    <button id="download-logs-btn" class="action-btn" type="button">Download Logs</button>
+                </div>
             </div>
 
             <div id="status-banner" class="status-banner">Waiting for your first device registration.</div>

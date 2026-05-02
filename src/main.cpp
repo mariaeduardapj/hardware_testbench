@@ -8,10 +8,11 @@ const char *password = ""; // Change this to your WiFi password
 AsyncWebServer server(80);
 
 #define SYSTEM_NAME "Hardware Test Bench"
-#define SYSTEM_VERSION "v1.2.1"
+#define SYSTEM_VERSION "v1.2.2"
 #define COMPATIBILITY_NOTE "Tested on ESP32 DevKit boards"
 
 constexpr size_t MAX_DEVICES = 12;
+constexpr size_t MAX_LOG_ENTRIES = 80;
 constexpr unsigned long BUTTON_LED_TIMEOUT_MS = 10000;
 constexpr unsigned long PIR_TIMEOUT_MS = 10000;
 constexpr unsigned long OUTPUT_PULSE_MS = 500;
@@ -67,8 +68,19 @@ struct DeviceConfig {
   TestState testState;
 };
 
+struct LogEntry {
+  bool used = false;
+  String timestamp;
+  String testName;
+  String result;
+  String message;
+};
+
 DeviceConfig devices[MAX_DEVICES];
+LogEntry logEntries[MAX_LOG_ENTRIES];
 uint8_t nextDeviceId = 1;
+size_t logEntryCount = 0;
+size_t nextLogEntryIndex = 0;
 
 void initWiFi() {
   WiFi.mode(WIFI_STA);
@@ -183,6 +195,102 @@ String jsonEscape(const String &value) {
   }
 
   return escaped;
+}
+
+String csvEscape(const String &value) {
+  String escaped = value;
+  escaped.replace("\"", "\"\"");
+  return "\"" + escaped + "\"";
+}
+
+String formatClockFromMillis(unsigned long valueMs) {
+  unsigned long totalSeconds = valueMs / 1000UL;
+  unsigned int hours = (totalSeconds / 3600UL) % 24UL;
+  unsigned int minutes = (totalSeconds / 60UL) % 60UL;
+  unsigned int seconds = totalSeconds % 60UL;
+
+  char buffer[9];
+  snprintf(buffer, sizeof(buffer), "%02u:%02u:%02u", hours, minutes, seconds);
+  return String(buffer);
+}
+
+String buildLogFilename(const char *extension) {
+  const String clockStamp = formatClockFromMillis(millis());
+  String compactStamp;
+  compactStamp.reserve(clockStamp.length());
+
+  for (size_t i = 0; i < clockStamp.length(); ++i) {
+    if (clockStamp[i] != ':') {
+      compactStamp += clockStamp[i];
+    }
+  }
+
+  return "test_logs_" + compactStamp + "." + extension;
+}
+
+void addLogEntry(const String &testName, const String &result, const String &message) {
+  LogEntry &entry = logEntries[nextLogEntryIndex];
+  entry.used = true;
+  entry.timestamp = formatClockFromMillis(millis());
+  entry.testName = testName;
+  entry.result = result;
+  entry.message = message;
+
+  nextLogEntryIndex = (nextLogEntryIndex + 1) % MAX_LOG_ENTRIES;
+  if (logEntryCount < MAX_LOG_ENTRIES) {
+    ++logEntryCount;
+  }
+}
+
+String buildLogsTxt() {
+  if (logEntryCount == 0) {
+    return "No test logs recorded yet.\n";
+  }
+
+  String output;
+  output.reserve(logEntryCount * 64);
+
+  const size_t start = (nextLogEntryIndex + MAX_LOG_ENTRIES - logEntryCount) % MAX_LOG_ENTRIES;
+  for (size_t i = 0; i < logEntryCount; ++i) {
+    const size_t index = (start + i) % MAX_LOG_ENTRIES;
+    const LogEntry &entry = logEntries[index];
+    if (!entry.used) {
+      continue;
+    }
+
+    output += entry.timestamp + " - " + entry.testName + " - " + entry.result;
+    if (entry.message.length() > 0) {
+      output += " - " + entry.message;
+    }
+    output += "\n";
+  }
+
+  return output;
+}
+
+String buildLogsCsv() {
+  String output = "timestamp,test_name,result,message\n";
+  if (logEntryCount == 0) {
+    return output;
+  }
+
+  output.reserve(logEntryCount * 72);
+
+  const size_t start = (nextLogEntryIndex + MAX_LOG_ENTRIES - logEntryCount) % MAX_LOG_ENTRIES;
+  for (size_t i = 0; i < logEntryCount; ++i) {
+    const size_t index = (start + i) % MAX_LOG_ENTRIES;
+    const LogEntry &entry = logEntries[index];
+    if (!entry.used) {
+      continue;
+    }
+
+    output += csvEscape(entry.timestamp) + ",";
+    output += csvEscape(entry.testName) + ",";
+    output += csvEscape(entry.result) + ",";
+    output += csvEscape(entry.message) + "\n";
+  }
+
+  return output;
 }
 
 bool isValidEsp32DevKitPin(int pin) {
@@ -349,6 +457,9 @@ void completeTest(DeviceConfig &device, ValidationState suggestedResult, const S
   device.testState.userCanOverride = true;
   device.testState.timestampMs = millis();
   device.testState.message = message;
+
+  const String loggedResult = String(validationStateToString(suggestedResult));
+  addLogEntry(device.name, loggedResult, message);
 }
 
 void startTest(DeviceConfig &device) {
@@ -697,7 +808,31 @@ void setupRoutes() {
       device->testState.message += " User override applied.";
     }
 
+    addLogEntry(device->name, String(validationStateToString(chosenResult)), device->testState.message);
     request->send(200, "application/json", buildTestStateJson(device->testState));
+  });
+
+  server.on("/download-logs", HTTP_GET, [](AsyncWebServerRequest *request) {
+    const String format = request->hasParam("format") ? request->getParam("format")->value() : "txt";
+
+    String payload;
+    String contentType;
+    String fileName;
+
+    if (format == "csv") {
+      payload = buildLogsCsv();
+      contentType = "text/csv";
+      fileName = buildLogFilename("csv");
+    } else {
+      payload = buildLogsTxt();
+      contentType = "text/plain";
+      fileName = buildLogFilename("txt");
+    }
+
+    AsyncWebServerResponse *response = request->beginResponse(200, contentType, payload);
+    response->addHeader("Content-Disposition", "attachment; filename=\"" + fileName + "\"");
+    response->addHeader("Cache-Control", "no-store");
+    request->send(response);
   });
 }
 
