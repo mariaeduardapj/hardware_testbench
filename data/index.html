@@ -45,6 +45,46 @@
         <section class="panel">
             <div class="card">
                 <div class="section-heading">
+                    <p class="eyebrow">Step 0</p>
+                    <h2>Wi-Fi setup</h2>
+                </div>
+
+                <div class="wifi-grid">
+                    <div class="meta-card">
+                        <span class="meta-label">Access Point</span>
+                        <strong id="wifi-ap-ssid">Loading...</strong>
+                        <p class="hint" id="wifi-ap-copy">Preparing setup network...</p>
+                    </div>
+
+                    <div class="meta-card">
+                        <span class="meta-label">Station</span>
+                        <strong id="wifi-sta-status">Loading...</strong>
+                        <p class="hint" id="wifi-sta-copy">Checking saved credentials...</p>
+                    </div>
+                </div>
+
+                <form id="wifi-form" class="device-form">
+                    <label>
+                        <span>Wi-Fi SSID</span>
+                        <input id="wifi-ssid" name="ssid" type="text" maxlength="32" placeholder="Network name" required>
+                    </label>
+
+                    <label>
+                        <span>Wi-Fi password</span>
+                        <input id="wifi-password" name="password" type="password" maxlength="64" placeholder="Leave blank for open network">
+                    </label>
+
+                    <div class="inline-actions">
+                        <button class="action-btn" type="submit">Save and connect</button>
+                        <button id="wifi-clear-btn" class="ghost-btn danger" type="button">Clear Wi-Fi</button>
+                    </div>
+                </form>
+            </div>
+        </section>
+
+        <section class="panel">
+            <div class="card">
+                <div class="section-heading">
                     <p class="eyebrow">Step 1</p>
                     <h2>Add device</h2>
                 </div>
@@ -72,13 +112,6 @@
 
                     <button class="action-btn" type="submit">Register device</button>
                 </form>
-
-                <p class="hint" id="board-list">
-                    Loading board support...
-                </p>
-                <p class="hint">
-                    Each test shows status, suggested PASS or FAIL, and lets you confirm or override.
-                </p>
             </div>
         </section>
 

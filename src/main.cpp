@@ -1,14 +1,14 @@
 #include <Arduino.h>
 #include <ESPAsyncWebServer.h>
 #include <LittleFS.h>
+#include <Preferences.h>
 #include <WiFi.h>
 
-const char *ssid = ""; // Change this to your WiFi network name
-const char *password = ""; // Change this to your WiFi password
 AsyncWebServer server(80);
+Preferences preferences;
 
 #define SYSTEM_NAME "Hardware Test Bench"
-#define SYSTEM_VERSION "v1.2.2"
+#define SYSTEM_VERSION "v1.3.0"
 #define COMPATIBILITY_NOTE "Tested on ESP32 DevKit boards"
 
 constexpr size_t MAX_DEVICES = 12;
@@ -16,6 +16,11 @@ constexpr size_t MAX_LOG_ENTRIES = 80;
 constexpr unsigned long BUTTON_LED_TIMEOUT_MS = 10000;
 constexpr unsigned long PIR_TIMEOUT_MS = 10000;
 constexpr unsigned long OUTPUT_PULSE_MS = 500;
+constexpr unsigned long WIFI_CONNECT_TIMEOUT_MS = 20000;
+constexpr const char *WIFI_NAMESPACE = "wifi";
+constexpr const char *WIFI_SSID_KEY = "ssid";
+constexpr const char *WIFI_PASSWORD_KEY = "password";
+constexpr const char *AP_PASSWORD = "benchconfig";
 
 enum DeviceType {
   DEVICE_BUZZER,
@@ -76,24 +81,142 @@ struct LogEntry {
   String message;
 };
 
+struct WiFiRuntimeState {
+  String staSsid;
+  String staPassword;
+  String apSsid;
+  bool staConfigured = false;
+  bool staConnected = false;
+  bool staConnecting = false;
+  wl_status_t lastStatus = WL_IDLE_STATUS;
+  unsigned long connectStartedAtMs = 0;
+} wifiState;
+
 DeviceConfig devices[MAX_DEVICES];
 LogEntry logEntries[MAX_LOG_ENTRIES];
 uint8_t nextDeviceId = 1;
 size_t logEntryCount = 0;
 size_t nextLogEntryIndex = 0;
 
-void initWiFi() {
-  WiFi.mode(WIFI_STA);
-  WiFi.begin(ssid, password);
-
-  Serial.print("Connecting to WiFi...");
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
-    Serial.print(".");
+String wifiStatusToString(wl_status_t status) {
+  switch (status) {
+    case WL_CONNECTED:
+      return "connected";
+    case WL_NO_SSID_AVAIL:
+      return "ssid-not-found";
+    case WL_CONNECT_FAILED:
+      return "connect-failed";
+    case WL_CONNECTION_LOST:
+      return "connection-lost";
+    case WL_DISCONNECTED:
+      return "disconnected";
+    case WL_IDLE_STATUS:
+    default:
+      return "idle";
   }
-  Serial.println(" connected.");
-  Serial.print("IP address: ");
-  Serial.println(WiFi.localIP());
+}
+
+String buildDefaultApSsid() {
+  const uint64_t chipId = ESP.getEfuseMac();
+  char buffer[32];
+  snprintf(buffer, sizeof(buffer), "HTB-Setup-%06llX", chipId & 0xFFFFFFULL);
+  return String(buffer);
+}
+
+void loadWiFiConfig() {
+  preferences.begin(WIFI_NAMESPACE, true);
+  wifiState.staSsid = preferences.getString(WIFI_SSID_KEY, "");
+  wifiState.staPassword = preferences.getString(WIFI_PASSWORD_KEY, "");
+  preferences.end();
+  wifiState.staConfigured = wifiState.staSsid.length() > 0;
+}
+
+void saveWiFiConfig(const String &ssid, const String &password) {
+  preferences.begin(WIFI_NAMESPACE, false);
+  preferences.putString(WIFI_SSID_KEY, ssid);
+  preferences.putString(WIFI_PASSWORD_KEY, password);
+  preferences.end();
+  wifiState.staSsid = ssid;
+  wifiState.staPassword = password;
+  wifiState.staConfigured = ssid.length() > 0;
+}
+
+void clearWiFiConfig() {
+  preferences.begin(WIFI_NAMESPACE, false);
+  preferences.remove(WIFI_SSID_KEY);
+  preferences.remove(WIFI_PASSWORD_KEY);
+  preferences.end();
+  wifiState.staSsid = "";
+  wifiState.staPassword = "";
+  wifiState.staConfigured = false;
+}
+
+void beginStationConnection() {
+  if (!wifiState.staConfigured) {
+    wifiState.staConnecting = false;
+    wifiState.staConnected = false;
+    return;
+  }
+
+  WiFi.disconnect(false, true);
+  delay(100);
+  WiFi.begin(wifiState.staSsid.c_str(), wifiState.staPassword.c_str());
+  wifiState.staConnecting = true;
+  wifiState.staConnected = false;
+  wifiState.connectStartedAtMs = millis();
+  wifiState.lastStatus = WiFi.status();
+
+  Serial.println("Wi-Fi STA connection started for SSID: " + wifiState.staSsid);
+}
+
+void initWiFi() {
+  loadWiFiConfig();
+
+  WiFi.persistent(false);
+  WiFi.setAutoReconnect(true);
+  WiFi.mode(WIFI_AP_STA);
+
+  wifiState.apSsid = buildDefaultApSsid();
+  const bool apStarted = WiFi.softAP(wifiState.apSsid.c_str(), AP_PASSWORD);
+
+  Serial.println(apStarted ? "Wi-Fi AP ready." : "Failed to start Wi-Fi AP.");
+  Serial.println("AP SSID: " + wifiState.apSsid);
+  Serial.println(String("AP password: ") + AP_PASSWORD);
+  Serial.print("AP IP address: ");
+  Serial.println(WiFi.softAPIP());
+
+  if (wifiState.staConfigured) {
+    beginStationConnection();
+  } else {
+    Serial.println("No saved Wi-Fi credentials. User can connect to the setup AP.");
+  }
+}
+
+void updateWiFiConnection() {
+  const wl_status_t currentStatus = WiFi.status();
+
+  if (currentStatus == WL_CONNECTED) {
+    if (!wifiState.staConnected) {
+      wifiState.staConnected = true;
+      wifiState.staConnecting = false;
+      Serial.println("Wi-Fi STA connected.");
+      Serial.print("STA IP address: ");
+      Serial.println(WiFi.localIP());
+    }
+  } else {
+    wifiState.staConnected = false;
+
+    if (wifiState.staConnecting && millis() - wifiState.connectStartedAtMs >= WIFI_CONNECT_TIMEOUT_MS) {
+      wifiState.staConnecting = false;
+      WiFi.disconnect(false, true);
+      Serial.println("Wi-Fi STA connection timed out. AP mode remains available for setup.");
+    }
+  }
+
+  if (currentStatus != wifiState.lastStatus) {
+    wifiState.lastStatus = currentStatus;
+    Serial.println("Wi-Fi status: " + wifiStatusToString(currentStatus));
+  }
 }
 
 void printHeader() {
@@ -590,6 +713,27 @@ String buildCatalogJson() {
          "}";
 }
 
+String buildWiFiJson() {
+  const wl_status_t status = WiFi.status();
+  const bool connected = status == WL_CONNECTED;
+  const IPAddress staIp = WiFi.localIP();
+  const IPAddress apIp = WiFi.softAPIP();
+
+  return String("{") +
+         "\"mode\":\"AP+STA\"," +
+         "\"apSsid\":\"" + jsonEscape(wifiState.apSsid) + "\"," +
+         "\"apPassword\":\"" + String(AP_PASSWORD) + "\"," +
+         "\"apIp\":\"" + apIp.toString() + "\"," +
+         "\"staConfigured\":" + String(wifiState.staConfigured ? "true" : "false") + "," +
+         "\"staSsid\":\"" + jsonEscape(wifiState.staSsid) + "\"," +
+         "\"staConnected\":" + String(connected ? "true" : "false") + "," +
+         "\"staConnecting\":" + String(wifiState.staConnecting ? "true" : "false") + "," +
+         "\"staStatus\":\"" + wifiStatusToString(status) + "\"," +
+         "\"staIp\":\"" + (connected ? staIp.toString() : String("")) + "\"," +
+         "\"setupMode\":" + String(connected ? "false" : "true") +
+         "}";
+}
+
 String buildTestStateJson(const TestState &testState) {
   return String("{") +
          "\"status\":\"" + String(testStatusToString(testState.status)) + "\"," +
@@ -672,6 +816,33 @@ void setupRoutes() {
 
   server.on("/catalog", HTTP_GET, [](AsyncWebServerRequest *request) {
     request->send(200, "application/json", buildCatalogJson());
+  });
+
+  server.on("/wifi", HTTP_GET, [](AsyncWebServerRequest *request) {
+    request->send(200, "application/json", buildWiFiJson());
+  });
+
+  server.on("/wifi/config", HTTP_POST, [](AsyncWebServerRequest *request) {
+    const String ssid = requestParamValue(request, "ssid");
+    const String password = requestParamValue(request, "password");
+
+    if (ssid.length() == 0) {
+      request->send(400, "text/plain", "Wi-Fi SSID is required.");
+      return;
+    }
+
+    saveWiFiConfig(ssid, password);
+    beginStationConnection();
+    request->send(200, "application/json", buildWiFiJson());
+  });
+
+  server.on("/wifi/clear", HTTP_POST, [](AsyncWebServerRequest *request) {
+    clearWiFiConfig();
+    WiFi.disconnect(false, true);
+    wifiState.staConnecting = false;
+    wifiState.staConnected = false;
+    wifiState.lastStatus = WiFi.status();
+    request->send(200, "application/json", buildWiFiJson());
   });
 
   server.on("/devices", HTTP_GET, [](AsyncWebServerRequest *request) {
@@ -851,5 +1022,6 @@ void setup() {
 }
 
 void loop() {
+  updateWiFiConnection();
   updateRunningTests();
 }

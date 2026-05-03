@@ -1,9 +1,14 @@
 const state = {
     catalog: null,
     devices: [],
+    wifi: null,
     pollingTimers: {}
 };
 
+const wifiForm = document.getElementById("wifi-form");
+const wifiSsidField = document.getElementById("wifi-ssid");
+const wifiPasswordField = document.getElementById("wifi-password");
+const wifiClearButton = document.getElementById("wifi-clear-btn");
 const typeField = document.getElementById("device-type");
 const nameField = document.getElementById("device-name");
 const pinAField = document.getElementById("pin-a");
@@ -124,6 +129,47 @@ function renderCatalog() {
     updatePinFields();
 }
 
+function renderWifiStatus() {
+    if (!state.wifi) {
+        return;
+    }
+
+    const apTitle = document.getElementById("wifi-ap-ssid");
+    const apCopy = document.getElementById("wifi-ap-copy");
+    const staTitle = document.getElementById("wifi-sta-status");
+    const staCopy = document.getElementById("wifi-sta-copy");
+    const connStatus = document.getElementById("conn-status");
+
+    apTitle.textContent = state.wifi.apSsid;
+    apCopy.textContent = `Connect to ${state.wifi.apSsid} / ${state.wifi.apPassword} and open ${state.wifi.apIp}.`;
+
+    if (state.wifi.staConfigured) {
+        wifiSsidField.value = state.wifi.staSsid || "";
+    }
+
+    if (state.wifi.staConnected) {
+        staTitle.textContent = `Connected to ${state.wifi.staSsid}`;
+        staCopy.textContent = `STA IP ${state.wifi.staIp}. Setup AP remains available on ${state.wifi.apIp}.`;
+        connStatus.textContent = `ONLINE (${state.wifi.staIp})`;
+        connStatus.classList.remove("offline");
+    } else if (state.wifi.staConnecting) {
+        staTitle.textContent = `Connecting to ${state.wifi.staSsid}`;
+        staCopy.textContent = `Trying saved credentials. If needed, use AP ${state.wifi.apSsid} at ${state.wifi.apIp}.`;
+        connStatus.textContent = "SETUP MODE";
+        connStatus.classList.add("offline");
+    } else if (state.wifi.staConfigured) {
+        staTitle.textContent = `Saved network: ${state.wifi.staSsid}`;
+        staCopy.textContent = `Current STA status: ${state.wifi.staStatus}. Configure again through AP ${state.wifi.apSsid}.`;
+        connStatus.textContent = "SETUP MODE";
+        connStatus.classList.add("offline");
+    } else {
+        staTitle.textContent = "No Wi-Fi configured";
+        staCopy.textContent = `Use the setup AP ${state.wifi.apSsid} and save the target network below.`;
+        connStatus.textContent = "SETUP MODE";
+        connStatus.classList.add("offline");
+    }
+}
+
 function renderDevices() {
     if (!state.devices.length) {
         deviceList.className = "device-list empty-state";
@@ -235,6 +281,16 @@ async function fetchCatalog() {
     renderCatalog();
 }
 
+async function fetchWifiStatus() {
+    const response = await fetch("/wifi");
+    if (!response.ok) {
+        throw new Error("Unable to load Wi-Fi status.");
+    }
+
+    state.wifi = await response.json();
+    renderWifiStatus();
+}
+
 async function fetchDevices() {
     const response = await fetch("/devices");
     if (!response.ok) {
@@ -250,12 +306,52 @@ async function fetchSystemInfo() {
         const response = await fetch("/info");
         const info = await response.text();
         document.getElementById("system-version").textContent = info;
-        document.getElementById("conn-status").textContent = "ONLINE";
-        document.getElementById("conn-status").classList.remove("offline");
     } catch (error) {
         document.getElementById("conn-status").textContent = "OFFLINE";
         document.getElementById("conn-status").classList.add("offline");
         throw error;
+    }
+}
+
+async function saveWifiConfig(event) {
+    event.preventDefault();
+
+    const ssid = wifiSsidField.value.trim();
+    const password = wifiPasswordField.value;
+    const params = new URLSearchParams({ ssid, password });
+
+    try {
+        const response = await fetch(`/wifi/config?${params.toString()}`, { method: "POST" });
+        if (!response.ok) {
+            throw new Error(await response.text());
+        }
+
+        state.wifi = await response.json();
+        renderWifiStatus();
+        setStatus(`Wi-Fi saved. Trying to connect to ${ssid}.`, "success");
+        addLog(`Wi-Fi credentials updated for ${ssid}.`);
+    } catch (error) {
+        setStatus(error.message, "error");
+        addLog(`Wi-Fi setup failed: ${error.message}`);
+    }
+}
+
+async function clearWifiConfig() {
+    try {
+        const response = await fetch("/wifi/clear", { method: "POST" });
+        if (!response.ok) {
+            throw new Error(await response.text());
+        }
+
+        state.wifi = await response.json();
+        wifiSsidField.value = "";
+        wifiPasswordField.value = "";
+        renderWifiStatus();
+        setStatus("Saved Wi-Fi cleared. ESP32 remains available through the setup AP.", "neutral");
+        addLog("Saved Wi-Fi credentials cleared.");
+    } catch (error) {
+        setStatus(error.message, "error");
+        addLog(`Failed to clear Wi-Fi: ${error.message}`);
     }
 }
 
@@ -366,16 +462,22 @@ function downloadLogs() {
 async function initializeInterface() {
     try {
         await fetchSystemInfo();
+        await fetchWifiStatus();
         await fetchCatalog();
         await fetchDevices();
         setStatus("Ready to register devices and run tests.");
-        addLog("Catalog and device registry loaded.");
+        addLog("Catalog, Wi-Fi status, and device registry loaded.");
+        setInterval(() => {
+            fetchWifiStatus().catch(() => {});
+        }, 5000);
     } catch (error) {
         setStatus("Unable to reach the ESP32 web interface.", "error");
         addLog("Connection to firmware failed.");
     }
 }
 
+wifiForm?.addEventListener("submit", saveWifiConfig);
+wifiClearButton?.addEventListener("click", clearWifiConfig);
 document.getElementById("device-form").addEventListener("submit", registerDevice);
 typeField.addEventListener("change", updatePinFields);
 downloadLogsButton?.addEventListener("click", downloadLogs);
