@@ -1,40 +1,89 @@
 ![ESP32](https://img.shields.io/badge/platform-ESP32-blue)
-![Status](https://img.shields.io/badge/status-in%20development-yellow)
+![Status](https://img.shields.io/badge/status-active-green)
 ![IoT](https://img.shields.io/badge/type-IoT-green)
-![Version](https://img.shields.io/badge/version-v1.2.1-blue)
+![Version](https://img.shields.io/badge/version-v1.4.0-blue)
 ![License](https://img.shields.io/badge/license-MIT-blue)
 
 # 🔧 Hardware Test Bench – ESP32
 
-A modular ESP32 firmware for testing electronic components during hardware prototyping and PCB validation.  
-The system provides an interactive **web-based interface**, allowing users to trigger and monitor hardware tests directly from a browser.
+A modular ESP32-based system for testing electronic components during hardware prototyping and PCB validation.
+
+The project evolved from a simple serial-based tester into a **web-based, configurable hardware validation platform**, designed to simplify testing workflows and improve traceability.
 
 ---
 
-## 🌐 New: Web Interface
+## 🌐 Web Interface
 
-The test system is now accessible via a local web server hosted on the ESP32.
+The system is fully accessible through a browser.
 
-- Access through the device's **local IP address**
-- Control tests using **interactive buttons**
-- View system version and status directly in the browser
+- Control tests via interactive UI
+- Monitor real-time status
+- View logs and results
+- Configure custom devices
 
 ---
 
-## 📋 Features
+## 🚀 Key Features
 
-### 🔹 Core Features
+### 🔹 Core System
 - Individual component testing
 - Full system test execution
-- Modular test structure
-- User interaction and validation
+- Modular architecture
+- Real-time feedback
 
-### 🔹 New Features (v1.1.0 → v1.2.1)
-- 🌐 Web interface for test control (replacing Serial menu)
-- 🔊 Sound feedback when a test starts
-- 🏷️ Version display in the interface
-- 🛡️ Watchdog system (online/offline status monitoring)
-- 🕒 Timestamped logging system for test execution
+---
+
+### 🔹 Advanced Features
+
+#### 🧩 Custom Test Builder
+Create and configure tests dynamically via the web interface:
+- Select device type (e.g., PIR, LED)
+- Assign GPIO pins
+- Run tests without modifying firmware
+
+---
+
+#### ✅ Hybrid PASS/FAIL System
+- Automatic validation based on expected behavior
+- Suggested result (PASS/FAIL)
+- Manual confirmation and override
+- Improves reliability and flexibility
+
+---
+
+#### 🕒 Timestamped Logging System
+- Tracks all test executions
+- Includes:
+  - start time
+  - end time
+  - result
+  - messages
+
+---
+
+#### 📥 Log Export
+- Download logs directly from the interface
+- Supported formats:
+  - `.txt`
+  - `.csv`
+- Enables external analysis and reporting
+
+---
+
+#### 📡 Wi-Fi Modes (AP + STA)
+Simplified user setup:
+
+- **Access Point (AP mode)**  
+  - ESP32 creates its own Wi-Fi network  
+  - Direct access via `192.168.4.1`
+
+- **Station Mode (STA)**  
+  - Connects to user’s Wi-Fi network  
+  - Enables integration with local infrastructure  
+
+- **Provisioning system**:
+  - First-time setup via browser
+  - No code modification required
 
 ---
 
@@ -49,70 +98,51 @@ The test system is now accessible via a local web server hosted on the ESP32.
 
 ---
 
-## 📍 Pin Configuration
-
-| Component          | GPIO |
-|------------------|------|
-| Buzzer           | 15   |
-| Relay            | 5    |
-| Ultrasonic Trigger | 19 |
-| Ultrasonic Echo  | 18   |
-| Button           | 21   |
-| LED              | 22   |
-| PIR Sensor       | 23   |
-
----
-
 ## ⚙️ How to Use
 
-### 1. Upload firmware
-Flash the firmware to your ESP32 using Arduino IDE or PlatformIO.
+### 🔹 First Use (No Configuration Required)
 
-### 2. Connect to the device
-- Connect ESP32 to your Wi-Fi network (or use AP mode if implemented)
-- Find the device IP address via Serial Monitor
-
-### 3. Access the Web Interface
-- Open your browser
-- Enter the ESP32 IP address
-
-### 4. Run tests
-- Use the on-screen buttons to trigger tests
-- Monitor system behavior and logs in real time
+1. Power on the ESP32  
+2. Connect to Wi-Fi:  
+   `TestBench_ESP32`  
+3. Open browser:  
+   `http://192.168.4.1`  
+4. Configure your Wi-Fi network  
 
 ---
 
-## 🧾 Logging System
+### 🔹 Normal Use
 
-The system now records test execution with timestamps:
+1. Access the system via browser  
+2. Add or configure devices  
+3. Run tests  
+4. Monitor results and logs  
+
+---
+
+## 🧾 Logging Example
 17:50:32 - Test started: PIR Sensor
-17:50:59 - Test completed: PIR Sensor
-
-This improves:
-- Debugging
-- Traceability
-- Validation process
+17:50:59 - Test completed: PIR Sensor (PASS)
 
 ---
 
 ## 🛡️ System Monitoring
 
-A watchdog mechanism tracks device status:
-
-- ✅ Online → System operating normally  
-- ❌ Offline → Possible failure or reset  
+- Watchdog-based status tracking
+- Detects:
+  - system failure
+  - connectivity issues
 
 ---
 
-## 🚀 Future Improvements
+## 🎯 Project Status
 
-- Remote dashboard (external access)
-- OTA firmware updates
-- Data export (logs download)
-- Automatic pass/fail validation
-- Non-blocking test execution
-- FreeRTOS task management
-- Hardware abstraction layer
+This project is now functionally complete as a **hardware validation platform**.
+
+Future updates will focus on:
+- adding new device tests
+- improving robustness
+- expanding real-world usage
 
 ---
 
